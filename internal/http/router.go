@@ -11,8 +11,9 @@ import (
 func NewRouter() *chi.Mux {
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(RequestID)
+	r.Use(RequestLogger)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
