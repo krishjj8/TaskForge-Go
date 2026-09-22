@@ -1,6 +1,7 @@
 package http
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 
@@ -8,8 +9,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func NewRouter() *chi.Mux {
+func NewRouter(db *sql.DB) *chi.Mux {
 	r := chi.NewRouter()
+
+	h := NewHandler(db)
 
 	r.Use(middleware.Recoverer)
 	r.Use(RequestID)
@@ -27,11 +30,11 @@ func NewRouter() *chi.Mux {
 		r.Get("/version", VersionHandler)
 
 		r.Route("/tasks", func(r chi.Router) {
-			r.Get("/", ListTasksHandler)
-			r.Post("/", CreateTaskHandler)
-			r.Get("/{id}", GetTaskHandler)
-			r.Put("/{id}", UpdateTaskHandler)
-			r.Delete("/{id}", DeleteTaskHandler)
+			r.Get("/", h.ListTasksHandler)
+			r.Post("/", h.CreateTaskHandler)
+			r.Get("/{id}", h.GetTaskHandler)
+			r.Put("/{id}", h.UpdateTaskHandler)
+			r.Delete("/{id}", h.DeleteTaskHandler)
 		})
 	})
 
