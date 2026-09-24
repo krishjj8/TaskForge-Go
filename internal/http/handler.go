@@ -1,23 +1,23 @@
 package http
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 
 	"taskforge/internal/model"
+	"taskforge/internal/repository"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type Handler struct {
-	db *sql.DB
+	repo repository.TaskRepository // Dependent on Interface, NOT *sql.DB!
 }
 
-func NewHandler(db *sql.DB) *Handler {
-	return &Handler{db: db}
+func NewHandler(repo repository.TaskRepository) *Handler {
+	return &Handler{repo: repo}
 }
 
 func HealthHandler(w http.ResponseWriter, r *http.Request) {
@@ -35,27 +35,12 @@ func VersionHandler(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/tasks
 func (h *Handler) ListTasksHandler(w http.ResponseWriter, r *http.Request) {
-	query := `SELECT id, title, COALESCE(description, ''), done FROM tasks ORDER BY id ASC`
-
-	rows, err := h.db.QueryContext(r.Context(), query)
+	tasks, err := h.repo.GetAll(r.Context())
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to fetch tasks"})
 		return
-	}
-	defer rows.Close()
-
-	tasks := []model.Task{}
-	for rows.Next() {
-		var t model.Task
-		if err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Done); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to scan task"})
-			return
-		}
-		tasks = append(tasks, t)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -72,14 +57,7 @@ func (h *Handler) CreateTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `
-		INSERT INTO tasks (title, description, done)
-		VALUES ($1, $2, $3)
-		RETURNING id
-	`
-
-	err := h.db.QueryRowContext(r.Context(), query, newTask.Title, newTask.Description, newTask.Done).Scan(&newTask.ID)
-	if err != nil {
+	if err := h.repo.Create(r.Context(), &newTask); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to create task"})
@@ -102,13 +80,10 @@ func (h *Handler) GetTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `SELECT id, title, COALESCE(description, ''), done FROM tasks WHERE id = $1`
-
-	var t model.Task
-	err = h.db.QueryRowContext(r.Context(), query, id).Scan(&t.ID, &t.Title, &t.Description, &t.Done)
+	task, err := h.repo.GetByID(r.Context(), id)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, repository.ErrNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Task not found"})
 			return
@@ -119,7 +94,7 @@ func (h *Handler) GetTaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(t)
+	json.NewEncoder(w).Encode(task)
 }
 
 // PUT /api/v1/tasks/{id}
@@ -141,17 +116,9 @@ func (h *Handler) UpdateTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `
-		UPDATE tasks
-		SET title = $1, description = $2, done = $3
-		WHERE id = $4
-		RETURNING id
-	`
-
-	err = h.db.QueryRowContext(r.Context(), query, updatedData.Title, updatedData.Description, updatedData.Done, id).Scan(&updatedData.ID)
-	if err != nil {
+	if err := h.repo.Update(r.Context(), id, &updatedData); err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, repository.ErrNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Task not found"})
 			return
@@ -176,21 +143,15 @@ func (h *Handler) DeleteTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `DELETE FROM tasks WHERE id = $1`
-
-	result, err := h.db.ExecContext(r.Context(), query, id)
-	if err != nil {
+	if err := h.repo.Delete(r.Context(), id); err != nil {
 		w.Header().Set("Content-Type", "application/json")
+		if errors.Is(err, repository.ErrNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Task not found"})
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to delete task"})
-		return
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil || rowsAffected == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Task not found"})
 		return
 	}
 

@@ -8,6 +8,7 @@ import (
 	appHTTP "taskforge/internal/http"
 
 	"taskforge/internal/config"
+	"taskforge/internal/repository"
 )
 
 func main() {
@@ -20,7 +21,9 @@ func main() {
 	}
 	defer db.Close()
 	log.Println("Database connection pool established successfully")
-	router := appHTTP.NewRouter(db)
+
+	taskRepo := repository.NewPostgresRepository(db)
+	router := appHTTP.NewRouter(taskRepo)
 
 	addr := ":" + cfg.Port
 	log.Printf("Server starting on %s in %s mode...\n", addr, cfg.Env)

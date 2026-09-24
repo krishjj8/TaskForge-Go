@@ -1,18 +1,19 @@
 package http
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
+
+	"taskforge/internal/repository"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func NewRouter(db *sql.DB) *chi.Mux {
+func NewRouter(repo repository.TaskRepository) *chi.Mux {
 	r := chi.NewRouter()
 
-	h := NewHandler(db)
+	h := NewHandler(repo)
 
 	r.Use(middleware.Recoverer)
 	r.Use(RequestID)
